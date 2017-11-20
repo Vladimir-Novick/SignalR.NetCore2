@@ -87,6 +87,8 @@ namespace SignalR.NetCore2.Code.Service
                                 {
                                     observer.OnNext(message);
                                 }
+                            } else {
+                                break;
                             }
 
                         }
