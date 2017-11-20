@@ -16,21 +16,28 @@ namespace SignalR.NetCore2.Code.Service
             _dataTicker.OpenBroadcastServer().Wait();
         }
 
-        public IEnumerable<MessageData> GetAllData()
+        public IEnumerable<MessageData> GetAllData() => _dataTicker.GetAllData();
+
+        public void SetNewKey(string key) => _dataTicker.SetNewKey(key);
+
+
+        public void DeleteKey(string key) => _dataTicker.DeleteKey(key);
+
+        public IObservable<MessageData> GetDataStreaming() => _dataTicker.StreamData(Context.ConnectionId);
+
+
+        public override Task OnConnectedAsync()
         {
-            return _dataTicker.GetAllData();
+            String ConnectionId = Context.ConnectionId;
+            _dataTicker.Connection(ConnectionId);
+            return base.OnConnectedAsync();
         }
 
-        public IObservable<MessageData> GetDataStreaming()
+        public override Task OnDisconnectedAsync(Exception exception)
         {
-            return _dataTicker.StreamData();
-        }
-
-
-
-        public async Task Reset()
-        {
-            await _dataTicker.Reset();
+            String ConnectionId = Context.ConnectionId;
+            _dataTicker.Disconnection(ConnectionId);
+            return base.OnDisconnectedAsync(exception);
         }
     }
 }

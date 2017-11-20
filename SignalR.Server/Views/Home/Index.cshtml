@@ -1,5 +1,92 @@
-﻿@{
-    ViewData["Title"] = "Home Page";
+﻿
+
+@{
+ViewBag.Title = "SignalR Server";
 }
 
-Welcome SignalR Service
+
+@section Scripts
+{
+
+    <script src="~/lib/jquery/dist/jquery.js"></script>
+    <script src="~/js/table/s_table.js" asp-append-version="true"></script>
+    <script src="~/js/moment.js"></script>
+  
+
+    <script type="text/javascript" src="~/js/signalr-clientES5-1.0.0-alpha2-final.js"></script>
+    <link rel="stylesheet" type="text/css" href="~/js/table/themes/s_table.css" asp-append-version="true" />
+
+}
+
+
+    <div class="site-container">
+	
+    <div class="input_key">
+	<input type="text" id="newValue" value="New Value" />
+    <input type="button" id="newKey" value="Add Item" />
+    </div>
+    <h2>Server Table</h2>
+    <div id="s_container" class="table_container">
+    <table id="DataTable"><thead><tr>
+    <th class="sortable">dataKey</th>
+ 
+    <th class="not_sort"></th></tr></thead>
+    <tbody></tbody></table>
+    </div>
+      <script type="text/javascript" >
+
+function deleteKeyRow(key){
+     connection.invoke("DeleteKey",key);
+    
+}
+
+  let connection ;
+
+window.onload = function () {
+    
+    var tableGen = new TableGen();
+
+
+    connection = new signalR.HubConnection("/DataTicker");
+
+    connection.start().then(function () {
+            connection.invoke("GetAllData").then(function (data) {
+               tableGen.CreateTableFromJSON("s_container", data,"DataTable");
+               startStreaming();
+             });
+
+    });
+
+
+
+
+
+
+function startStreaming() {
+    connection.stream("GetDataStreaming").subscribe({
+        close: false ,
+        next: insertRow2,
+        error: function (err) {
+         
+        }
+    });
+}
+
+document.getElementById('newKey').onclick = function () {
+    var k = $('#newValue').val();
+    connection.invoke("SetNewKey",k);
+};
+
+
+
+function insertRow2(data){
+   tableGen.insertRow(data);
+}
+
+
+}
+
+
+
+
+</script>

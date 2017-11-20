@@ -1,2 +1,3 @@
-# SignalR.Server
-Simple project that shows how to use SignalR in Microsoft.AspNetCore 2 MVC application
+# SignalR.NetCore2
+
+Simple DotNet Core 2 Web Broadcast Server bese on SignalR

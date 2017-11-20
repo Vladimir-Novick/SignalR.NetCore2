@@ -13,24 +13,20 @@ namespace SignalR.NetCore2.Code.Service
     public class DataTicker
     {
         private readonly SemaphoreSlim _broadcastServerStateLock = new SemaphoreSlim(1, 1);
-        private readonly SemaphoreSlim _updateMessageDataLock = new SemaphoreSlim(1, 1);
 
-        private readonly ConcurrentDictionary<string, MessageData> _messageData = new ConcurrentDictionary<string, MessageData>();
+        private ConcurrentDictionary<string, MessageData> _messageData =
+                 new ConcurrentDictionary<string, MessageData>();
 
-        // MessageData can go up or down by a percentage of this factor on each change
-        private readonly double _rangePercent = 0.002;
+        private ConcurrentDictionary<string, ConcurrentQueue<MessageData>> ObserverQueue =
+         new ConcurrentDictionary<string, ConcurrentQueue<MessageData>>();
 
         private readonly TimeSpan _updateInterval = TimeSpan.FromMilliseconds(250);
-        private readonly Random _updateOrNotRandom = new Random();
 
-        private Timer _timer;
-        private volatile bool _updatingMessageDataDataValues;
         private volatile BroadcastDataServerState _broadcastServerState;
 
         public DataTicker(IHubContext<DataTickerHub> clients)
         {
             Clients = clients;
-            LoadDefaultData();
         }
 
         private IHubContext<DataTickerHub> Clients
@@ -45,21 +41,58 @@ namespace SignalR.NetCore2.Code.Service
             private set { _broadcastServerState = value; }
         }
 
+        public void Connection(String connectionID)
+        {
+            ConcurrentQueue<MessageData> ConcurrentQueue = new ConcurrentQueue<MessageData>();
+            ObserverQueue.TryAdd(connectionID, ConcurrentQueue);
+        }
+
+        public void Disconnection(String connectionID)
+        {
+            ConcurrentQueue<MessageData> oldConcurrentQueue;
+            ObserverQueue.TryRemove(connectionID, out oldConcurrentQueue);
+        }
+
         public IEnumerable<MessageData> GetAllData()
         {
             return _messageData.Values;
         }
 
-        public IObservable<MessageData> StreamData()
+
+        public void AddMessageToQue(MessageData message)
         {
+            foreach (var observerQueue in ObserverQueue.Values)
+            {
+                observerQueue.Enqueue(message);
+            }
+        }
+        public IObservable<MessageData> StreamData(String connectionID)
+        {
+
             return Observable.Create(
                 async (IObserver<MessageData> observer) =>
                 {
                     while (BroadcastServerState == BroadcastDataServerState.Open)
                     {
-                        foreach (var messageData in _messageData.Values)
+
+                        try
                         {
-                            observer.OnNext(messageData);
+                            ConcurrentQueue<MessageData> observerQueue;
+                            if (ObserverQueue.TryGetValue(connectionID, out observerQueue))
+                            {
+
+                                MessageData message;
+
+                                if (observerQueue.TryDequeue(out message))
+                                {
+                                    observer.OnNext(message);
+                                }
+                            }
+
+                        }
+                        catch
+                        {
+
                         }
                         await Task.Delay(_updateInterval);
                     }
@@ -73,7 +106,6 @@ namespace SignalR.NetCore2.Code.Service
             {
                 if (BroadcastServerState != BroadcastDataServerState.Open)
                 {
-                    _timer = new Timer(UpdateMessageDataDataValues, null, _updateInterval, _updateInterval);
 
                     BroadcastServerState = BroadcastDataServerState.Open;
 
@@ -86,98 +118,29 @@ namespace SignalR.NetCore2.Code.Service
             }
         }
 
-        public async Task CloseMarket()
+
+
+
+        public void SetNewKey(String dataKey)
         {
-            await _broadcastServerStateLock.WaitAsync();
-            try
+            var sKeyMessage = new MessageData { DataKey = dataKey, DataValue = dataKey };
+            _messageData.TryAdd(sKeyMessage.DataKey, sKeyMessage);
             {
-                if (BroadcastServerState == BroadcastDataServerState.Open)
-                {
-                    if (_timer != null)
-                    {
-                        _timer.Dispose();
-                    }
-
-                    BroadcastServerState = BroadcastDataServerState.Closed;
-
-                    await BroadcastBroadcastServerStateChange(BroadcastDataServerState.Closed);
-                }
+                AddMessageToQue(sKeyMessage);
             }
-            finally
-            {
-                _broadcastServerStateLock.Release();
-            }
+            return;
         }
 
-        public async Task Reset()
+        public void DeleteKey(string key)
         {
-            await _broadcastServerStateLock.WaitAsync();
-            try
-            {
-                if (BroadcastServerState != BroadcastDataServerState.Closed)
-                {
-                    throw new InvalidOperationException("BroadcastServer must be closed before it can be reset.");
-                }
+            MessageData deletedMessage;
 
-                LoadDefaultData();
-                await BroadcastDataServerReset();
+            _messageData.TryRemove(key, out deletedMessage);
+            if (deletedMessage != null)
+            {
+                deletedMessage.DataValue = "";
+                AddMessageToQue(deletedMessage);
             }
-            finally
-            {
-                _broadcastServerStateLock.Release();
-            }
-        }
-
-        private void LoadDefaultData()
-        {
-            _messageData.Clear();
-
-            var messageDatas = new List<MessageData>
-            {
-                new MessageData { DataKey = "key1", DataValue = "Test1" },
-                new MessageData { DataKey = "key2", DataValue = "Test2" },
-                new MessageData { DataKey = "key3", DataValue = "test3" }
-            };
-
-            messageDatas.ForEach(messageData => _messageData.TryAdd(messageData.DataKey, messageData));
-        }
-
-        private async void UpdateMessageDataDataValues(object state)
-        {
-            // This function must be re-entrant as it's running as a timer interval handler
-            await _updateMessageDataLock.WaitAsync();
-            try
-            {
-                if (!_updatingMessageDataDataValues)
-                {
-                    _updatingMessageDataDataValues = true;
-
-                    foreach (var messageData in _messageData.Values)
-                    {
-                        TryUpdateMessageDataDataValue(messageData);
-                    }
-
-                    _updatingMessageDataDataValues = false;
-                }
-            }
-            finally
-            {
-                _updateMessageDataLock.Release();
-            }
-        }
-
-        private bool TryUpdateMessageDataDataValue(MessageData messageData)
-        {
-            // Randomly choose whether to udpate this messageData or not
-            var r = _updateOrNotRandom.NextDouble();
-            if (r > 0.1)
-            {
-                return false;
-            }
-
-
-            messageData.DataValue = "Value =" +r.ToString();
-            return true;
         }
 
         private async Task BroadcastBroadcastServerStateChange(BroadcastDataServerState serverState)
@@ -195,10 +158,6 @@ namespace SignalR.NetCore2.Code.Service
             }
         }
 
-        private async Task BroadcastDataServerReset()
-        {
-            await Clients.Clients.All.InvokeAsync("serverReset");
-        }
 
 
     }
