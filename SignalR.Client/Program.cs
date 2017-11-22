@@ -60,9 +60,9 @@ namespace CsharpClient
                 var channel = await connection.StreamAsync<MessageData>("GetDataStreaming", CancellationToken.None);
                 while (await channel.WaitToReadAsync() && !cts.IsCancellationRequested)
                 {
-                    while (channel.TryRead(out var stock))
+                    while (channel.TryRead(out var dataMessage))
                     {
-                        Console.WriteLine($"{stock.DataKey} {stock.DataValue}");
+                        Console.WriteLine($"{dataMessage.DataKey} {dataMessage.DataValue}");
                     }
                 }
             }
